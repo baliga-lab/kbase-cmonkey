@@ -15,6 +15,15 @@ WORKSPACE_URL = 'https://kbase.us/services/ws'
 CM_URL = 'http://140.221.85.173:7078'
 UJS_URL = 'https://kbase.us/services/userandjobstate'
 
+class UserAndJobState(object):
+    def __init__(self, ujs_service, job_id):
+        self.ujs_service = ujs_service
+        self.job_id = job_id
+
+    def get_job_description(self):
+        return self.ujs_service.get_job_description(self.job_id)
+
+
 class WorkspaceInstance(object):
     """representation of a KBase workspace instance"""
 
@@ -39,6 +48,10 @@ class WorkspaceInstance(object):
                                             'id': objid,
                                             'data': data})
 
+    def get_object(self, objid):
+        """returns the object data for the specified object"""
+        return ws.get_object({'workspace': self.name(), 'id': objid})
+
 
 class WorkspaceObject(object):
     """an object that is stored in a workspace"""
@@ -47,30 +60,23 @@ class WorkspaceObject(object):
         self.ws = ws_inst
         self.id = id
         self.version = version
+        self.obj = None
 
     def obj_ref(self):
         """Build an object reference"""
         return "%s/%s/%s" % (self.ws.id(), self.id, self.version)
+
+    def data(self):
+        """retrieves the data from the workspace service"""
+        if self.obj is None:
+            self.obj = ws.get_object(self.id)
+        return self.obj['data']
 
 
 def __workspaces(ws_service, exclude_global=True):
   no_global = 1 if exclude_global else 0
   for meta in ws_service.list_workspaces({'excludeGlobal': no_global}):
       yield WorkspaceInstance(ws_service, meta)
-
-def workspaces_for(user, password, service_url=WORKSPACE_URL):
-    ws_service = wsc.Workspace(service_url, user_id=user, password=password)
-    return [ws for ws in __workspaces(ws_service)]
-
-def workspace(user, password, name, search_global=False, service_url=WORKSPACE_URL):
-    ws_service = wsc.Workspace(service_url, user_id=user, password=password)
-    for ws in __workspaces(ws_service, not search_global):
-        print "comparing with %s" % ws.name()
-        if ws.name() == name:
-            return ws
-    raise Exception("no workspace named '%s' found !" % name)
-
-
 
 """
 Gene Expressions
@@ -106,6 +112,7 @@ def save_expression_series(ws, name, source_file,
           'genome_expression_sample_ids_map': {genome_id: sample_ids}}
   return ws.save_object('KBaseExpression.ExpressionSeries-1.0', name, data)
 
+
 """
 Interaction Sets
 """
@@ -135,3 +142,39 @@ def save_interaction_set(ws, name, nwtype, edges):
             'interactions': interactions}
 
     return ws.save_object('KBaseNetworks.InteractionSet-1.0', name, data)
+
+
+"""
+High-level Service Access
+"""
+
+def workspaces_for(user, password, service_url=WORKSPACE_URL):
+    ws_service = wsc.Workspace(service_url, user_id=user, password=password)
+    return [ws for ws in __workspaces(ws_service)]
+
+
+def workspace(user, password, name, search_global=False, service_url=WORKSPACE_URL):
+    ws_service = wsc.Workspace(service_url, user_id=user, password=password)
+    for ws in __workspaces(ws_service, not search_global):
+        print "comparing with %s" % ws.name()
+        if ws.name() == name:
+            return ws
+    raise Exception("no workspace named '%s' found !" % name)
+
+
+def user_job_state(user, password, jobid, service_url=UJS_URL):
+    ujs_service = ujs.UserAndJobState(service_url, user_id=user, password=password)
+    return UserAndJobState(ujs_service, jobid)
+
+
+def run_cmonkey(user, password, target_workspace,
+                service_url=CM_URL):
+  cm_service = cmc.Cmonkey(service_url, user_id=user, password=password)
+  id = cm_service.run_cmonkey(target_workspace,
+                              {'series_ref':'AKtest/Halobacterium_sp_expression_series',
+                               'genome_ref':'AKtest/Halobacterium_sp_NRC-1',
+                               'operome_ref':'AKtest/Halobacterium_sp_operons',
+                               'network_ref':'AKtest/Halobacterium_sp_STRING',
+                               'networks_scoring':0,
+                               'motifs_scoring':0})
+  print id
