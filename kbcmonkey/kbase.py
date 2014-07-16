@@ -52,9 +52,9 @@ class WorkspaceInstance(object):
                                                             'id': objid,
                                                             'data': data})[11])
 
-    def get_object(self, objid):
+    def get_object(self, object_name):
         """returns the object data for the specified object"""
-        return ws.get_object({'workspace': self.name(), 'id': objid})
+        return self.ws_service.get_object({'workspace': self.name(), 'id': object_name})
 
 
 class WorkspaceObject(object):
@@ -208,3 +208,32 @@ def run_cmonkey(user, password, target_workspace,
                                  'network_ref': network_ref,
                                  'networks_scoring': 1,
                                  'motifs_scoring': 1})
+
+class CmonkeyResult(object):
+    def __init__(self, data):
+        self.data = data['data']
+        self.__clusters = None
+    
+    def num_clusters(self):
+        return self.data['network']['clusters_number']
+
+    def num_rows(self):
+        return self.data['network']['rows_number']
+
+    def num_columns(self):
+        return self.data['network']['columns_number']
+
+    def clusters(self):
+        if self.__clusters is None:
+            self.__clusters = []
+            for i, clusterdata in enumerate(self.data['network']['clusters']):
+                residual = clusterdata['residual']
+                columns = clusterdata['sample_ws_ids']
+                rows = clusterdata['gene_ids']
+                self.__clusters.append((rows, columns, residual))
+        return self.__clusters
+
+    def __repr__(self):
+        return "CmonkeyResult - %d rows, %d cols, %d clusters" % (self.num_rows(),
+                                                                  self.num_columns(),
+                                                                  self.num_clusters())
