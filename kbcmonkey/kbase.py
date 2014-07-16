@@ -1,3 +1,6 @@
+import os
+import pandas
+
 import WorkspaceClient as wsc
 import CmonkeyClient as cmc
 import UserAndJobStateClient as ujs
@@ -43,10 +46,11 @@ class WorkspaceInstance(object):
     def save_object(self, objtype, objid, data):
         """Generic way to store an object into KBase, class-specific save functions
         call this one"""
-        return self.ws_service.save_object({'workspace': self.name(),
-                                            'type': objtype,
-                                            'id': objid,
-                                            'data': data})
+        return WorkspaceObject(self,
+                               self.ws_service.save_object({'workspace': self.name(),
+                                                            'type': objtype,
+                                                            'id': objid,
+                                                            'data': data})[11])
 
     def get_object(self, objid):
         """returns the object data for the specified object"""
@@ -74,9 +78,9 @@ class WorkspaceObject(object):
 
 
 def __workspaces(ws_service, exclude_global=True):
-  no_global = 1 if exclude_global else 0
-  for meta in ws_service.list_workspaces({'excludeGlobal': no_global}):
-      yield WorkspaceInstance(ws_service, meta)
+    no_global = 1 if exclude_global else 0
+    for meta in ws_service.list_workspaces({'excludeGlobal': no_global}):
+        yield WorkspaceInstance(ws_service, meta)
 
 """
 Gene Expressions
@@ -84,6 +88,9 @@ Gene Expressions
 
 def save_expression_sample(ws, id, condition, gene_pvals, genome_id):
   """
+  Saves the pvalue for each gene in an expression sample.
+  gene_pvals is a dictionary that maps from gene name to pvalue
+
   condition -> source_id"""
   data = {'id': id,
           'source_id': condition,
@@ -96,22 +103,33 @@ def save_expression_sample(ws, id, condition, gene_pvals, genome_id):
   return ws.save_object('KBaseExpression.ExpressionSample-1.2', id, data)
 
 def save_expression_series(ws, name, source_file,
-                           genome_id, sample_ids):
-  """
-  Gene expressions in KBase are stored as a list of ExpressionSeries
-  Parameters:
-  - ws: Workspace service interface
-  - workspace: workspace object
-  - name: unique name the object should be stored under
-  - source_file: source file
-  - genome_id: the unique name of the genome this expression series is based on
-  - sample_ids: a list of ExpressionSample ids, in KBase standard identifier format
-  """
-  data = {'id': name, 'source_id': source_file,
-          'external_source_date': 'unknown',
-          'genome_expression_sample_ids_map': {genome_id: sample_ids}}
-  return ws.save_object('KBaseExpression.ExpressionSeries-1.0', name, data)
+                           genome_id, samples):
+    """
+    Gene expressions in KBase are stored as a list of ExpressionSeries
+    Parameters:
+    - ws: Workspace service interface
+    - workspace: workspace object
+    - name: unique name the object should be stored under
+    - source_file: source file
+    - genome_id: the unique name of the genome this expression series is based on
+    - sample_ids: a list of ExpressionSample ids, in KBase standard identifier format
+    """
+    sample_ids = [sample.obj_ref() for sample in samples]
+    data = {'id': name, 'source_id': source_file,
+            'external_source_date': 'unknown',
+            'genome_expression_sample_ids_map': {genome_id: sample_ids}}
+    return ws.save_object('KBaseExpression.ExpressionSeries-1.0', name, data)
 
+def import_ratios_matrix(ws, name, genome_id, filepath, sep='\t'):
+    filename = os.path.basename(filepath)
+    matrix = pandas.io.parsers.read_table(filepath, index_col=0)
+    samples = []
+    for i, colname in enumerate(matrix.columns):
+        colvals = matrix.values[:, i]
+        pvals = {rowname: colvals[j] for j, rowname in enumerate(matrix.index)}
+        samples.append(save_expression_sample(ws, '%s-%d' % (name, i), colname,
+                                              pvals, genome_id))
+    return save_expression_series(ws, name, filename, genome_id, samples)
 
 """
 Interaction Sets
@@ -168,13 +186,13 @@ def user_job_state(user, password, jobid, service_url=UJS_URL):
 
 
 def run_cmonkey(user, password, target_workspace,
+                series_ref,
                 service_url=CM_URL):
   cm_service = cmc.Cmonkey(service_url, user_id=user, password=password)
-  id = cm_service.run_cmonkey(target_workspace,
-                              {'series_ref':'AKtest/Halobacterium_sp_expression_series',
-                               'genome_ref':'AKtest/Halobacterium_sp_NRC-1',
-                               'operome_ref':'AKtest/Halobacterium_sp_operons',
-                               'network_ref':'AKtest/Halobacterium_sp_STRING',
-                               'networks_scoring':0,
-                               'motifs_scoring':0})
-  print id
+  return cm_service.run_cmonkey(target_workspace,
+                                {'series_ref': series_ref,
+                                 'genome_ref': 'AKtest/Halobacterium_sp_NRC-1',
+                                 'operome_ref': 'AKtest/Halobacterium_sp_operons',
+                                 'network_ref': 'AKtest/Halobacterium_sp_STRING',
+                                 'networks_scoring': 0,
+                                 'motifs_scoring': 0})
