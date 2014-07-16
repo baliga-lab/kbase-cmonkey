@@ -121,6 +121,8 @@ def save_expression_series(ws, name, source_file,
     return ws.save_object('KBaseExpression.ExpressionSeries-1.0', name, data)
 
 def import_ratios_matrix(ws, name, genome_id, filepath, sep='\t'):
+    """Reads a gene expression matrix and stores it in the specified
+    workspace"""
     filename = os.path.basename(filepath)
     matrix = pandas.io.parsers.read_table(filepath, index_col=0)
     samples = []
@@ -136,6 +138,7 @@ Interaction Sets
 """
 def save_interaction_set(ws, name, nwtype, edges):
     """Save an interaction set, this is for things like STRING networks and operons
+    Edges are a list of triples (node1, node2, weight)
     """
     def dataset_source(id, desc, url):
         return {'id': id, 'name': id,
@@ -162,6 +165,15 @@ def save_interaction_set(ws, name, nwtype, edges):
     return ws.save_object('KBaseNetworks.InteractionSet-1.0', name, data)
 
 
+def import_network(ws, name, nwtype, filepath, sep='\t'):
+    filename = os.path.basename(filepath)
+    with open(filename) as infile:
+        edges = []
+        for line in infile:
+            n1, n2, w = line.strip().split(sep)
+            edges.append((n1, n2, float(w)))
+        return save_interaction_set(ws, name, nwtype, edges)
+
 """
 High-level Service Access
 """
@@ -174,7 +186,6 @@ def workspaces_for(user, password, service_url=WORKSPACE_URL):
 def workspace(user, password, name, search_global=False, service_url=WORKSPACE_URL):
     ws_service = wsc.Workspace(service_url, user_id=user, password=password)
     for ws in __workspaces(ws_service, not search_global):
-        print "comparing with %s" % ws.name()
         if ws.name() == name:
             return ws
     raise Exception("no workspace named '%s' found !" % name)
@@ -186,13 +197,14 @@ def user_job_state(user, password, jobid, service_url=UJS_URL):
 
 
 def run_cmonkey(user, password, target_workspace,
-                series_ref,
+                series_ref, network_ref,
                 service_url=CM_URL):
   cm_service = cmc.Cmonkey(service_url, user_id=user, password=password)
   return cm_service.run_cmonkey(target_workspace,
                                 {'series_ref': series_ref,
                                  'genome_ref': 'AKtest/Halobacterium_sp_NRC-1',
                                  'operome_ref': 'AKtest/Halobacterium_sp_operons',
-                                 'network_ref': 'AKtest/Halobacterium_sp_STRING',
-                                 'networks_scoring': 0,
-                                 'motifs_scoring': 0})
+#                                 'network_ref': 'AKtest/Halobacterium_sp_STRING',
+                                 'network_ref': network_ref,
+                                 'networks_scoring': 1,
+                                 'motifs_scoring': 1})
