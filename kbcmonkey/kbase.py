@@ -4,6 +4,7 @@ import pandas
 import WorkspaceClient as wsc
 import CmonkeyClient as cmc
 import UserAndJobStateClient as ujs
+import InferelatorClient as inf
 
 """
 KBase is a distributed platform which provides a REST API to its services.
@@ -16,6 +17,7 @@ calls.
 """
 WORKSPACE_URL = 'https://kbase.us/services/ws'
 CM_URL = 'http://140.221.85.173:7078'
+INF_URL = 'http://140.221.67.196:7113'
 UJS_URL = 'https://kbase.us/services/userandjobstate'
 
 class UserAndJobState(object):
@@ -25,6 +27,12 @@ class UserAndJobState(object):
 
     def get_job_description(self):
         return self.ujs_service.get_job_description(self.job_id)
+
+    def get_job_status(self):
+        return self.ujs_service.get_job_status(self.job_id)
+
+    def get_detailed_error(self):
+        return self.ujs_service.get_detailed_error(self.job_id)
 
 
 class WorkspaceInstance(object):
@@ -136,7 +144,7 @@ def import_ratios_matrix(ws, name, genome_id, filepath, sep='\t'):
 """
 Interaction Sets
 """
-def save_interaction_set(ws, name, nwtype, edges):
+def save_interaction_set(ws, name, nwtype, edges, score_name):
     """Save an interaction set, this is for things like STRING networks and operons
     Edges are a list of triples (node1, node2, weight)
     """
@@ -146,7 +154,7 @@ def save_interaction_set(ws, name, nwtype, edges):
                 'description': desc,
                 'resource_url': url}
 
-    def interaction(id, node1, node2, nwtype, score_name, weight):
+    def interaction(id, node1, node2, nwtype, weight):
         return {'id': id, 'type': nwtype,
                 'entity1_id': node1, 'entity2_id': node2,
                 'scores': {score_name: weight} }
@@ -154,7 +162,7 @@ def save_interaction_set(ws, name, nwtype, edges):
     interactions = []
     for i, edge in enumerate(edges):
         n1, n2, weight = edge
-        interactions.append(interaction('edge-%d' % i, n1, n2, nwtype, 'pval', weight))
+        interactions.append(interaction('edge-%d' % i, n1, n2, nwtype, weight))
 
     data = {'id': name, 'name': name,
             'description': 'my network',
@@ -167,12 +175,35 @@ def save_interaction_set(ws, name, nwtype, edges):
 
 def import_network(ws, name, nwtype, filepath, sep='\t'):
     filename = os.path.basename(filepath)
+    if nwtype == 'STRING':
+        score_name = 'STRING_SCORE'
+    else:
+        score_name = 'pval'
+
     with open(filename) as infile:
         edges = []
         for line in infile:
             n1, n2, w = line.strip().split(sep)
             edges.append((n1, n2, float(w)))
-        return save_interaction_set(ws, name, nwtype, edges)
+        return save_interaction_set(ws, name, nwtype, edges, score_name)
+
+
+def import_string_network(ws, name, filepath, sep='\t'):
+    return import_network(ws, name, 'STRING', filepath, sep)
+
+
+"""
+Gene Lists
+"""
+
+def save_gene_list(ws, id, genes):
+  """Saves a gene list"""
+  data = {'id': id,
+          'source_id': 'Microbes Online',
+          'description': 'Transcription factors',
+          'genes': genes}
+  return ws.save_object('Inferelator.GeneList-1.0', id, data)
+
 
 """
 High-level Service Access
@@ -237,3 +268,13 @@ class CmonkeyResult(object):
         return "CmonkeyResult - %d rows, %d cols, %d clusters" % (self.num_rows(),
                                                                   self.num_columns(),
                                                                   self.num_clusters())
+
+
+def run_inferelator(user, password, target_workspace,
+                    tf_ref, result_ref,
+                    service_url=INF_URL):
+    """abstracts the Inferelator service"""
+    inf_service = inf.Inferelator(service_url, user_id=user, password=password)
+    return inf_service.run_inferelator(target_workspace,
+                                       {'tf_list_ws_ref': tf_ref,
+                                        'cmonkey_run_result_ws_ref': result_ref})
